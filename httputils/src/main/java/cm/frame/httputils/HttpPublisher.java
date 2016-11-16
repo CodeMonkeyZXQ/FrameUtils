@@ -4,6 +4,7 @@ import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.text.TextUtils;
+import android.util.Log;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
@@ -20,7 +21,7 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 
-public class HttpPublisher{
+public class HttpPublisher {
     /**
      * 访问网络失败
      */
@@ -37,7 +38,21 @@ public class HttpPublisher{
     private static final String DEFAULT_TOKEN_NAME = "accessToken";
     private static final String TAG = "HttpPubliser";
 
-    private HttpCallback defaultCallBack;
+    private HttpCallback defaultCallBack = new HttpCallback() {
+        @Override
+        public void onFailure(HttpMethod method, String tag, IOException e) {
+            String msg = tag;
+            if (method.getParam() != null && !method.getParam().isEmpty()) {
+                msg = msg + ":" + method.getParam().toString();
+            }
+            Log.e(TAG, msg, e);
+        }
+
+        @Override
+        public void onSuccess(HttpMethod method, String tag) {
+            Log.d(TAG, tag + ":" + method.toJSONString());
+        }
+    };
 
     public class JsonObjectCallback implements Callback {
         private HttpMethod method;
@@ -58,19 +73,13 @@ public class HttpPublisher{
                 data.put("errName", "Http访问异常");
             }
             method.put(data);
-//            if (method.getParam() != null && !method.getParam().isEmpty()) {
-//                Logger.e(method.getParam().toString());
-//            }
-//            Logger.json(method.data().toJSONString());
-            defaultCallBack.onFailure(method,eventTag,e);
+            defaultCallBack.onFailure(method, eventTag, e);
         }
 
         @Override
         public void onResponse(Call call, Response response) throws IOException {
             JSONObject data = JSON.parseObject(response.body().string());
             defaultCallBack.onSuccess(method.put(data), eventTag);
-//            Logger.d(method.getParam().toString());
-//            Logger.json(method.data().toJSONString());
         }
     }
 
@@ -92,15 +101,21 @@ public class HttpPublisher{
 
 
     /**
-     * @Title : setToken @Description :
-     * 设置Token，sendRequestWithToken发送请求会带个token @params @param token
-     * 设定文件 @return void 返回类型 @throws
+     * 设置请求token
+     *
+     * @param token
      */
     public void setToken(String token) {
         if (null != token && !token.isEmpty())
             mHttpToken.put(DEFAULT_TOKEN_NAME, token);
     }
 
+    /**
+     * 设置请求token
+     *
+     * @param name  key
+     * @param token value
+     */
     public void setToken(String name, String token) {
         if (null != name && null != token && !token.isEmpty() && !name.isEmpty()) {
             mHttpToken.put(name, token);
@@ -130,9 +145,7 @@ public class HttpPublisher{
             data.put("errCode", NETWORK_ERROR);
             data.put("errName", "网络异常");
             method.put(data);
-//            Logger.e(method.getParam().toString());
-//            Logger.json(data.toJSONString());
-            defaultCallBack.onFailure(method,tag,null);
+            defaultCallBack.onFailure(method, tag, null);
             return;
         }
         FormBody.Builder formBuilder = new FormBody.Builder();
@@ -151,8 +164,10 @@ public class HttpPublisher{
     }
 
     /**
-     * @Title : sendRequestWithToken @Description : 带Token的发送请求 @params @param
-     * method @param tag 设定文件 @return void 返回类型 @throws
+     * 带Token的发送请求
+     *
+     * @param method
+     * @param tag
      */
     public void sendRequestWithToken(HttpMethod method, String tag) {
         for (String key : mHttpToken.keySet()) {
@@ -165,12 +180,7 @@ public class HttpPublisher{
      * 取消所有
      */
     public void cancelAll() {
-        for (Call call : client.dispatcher().queuedCalls()) {
-            call.cancel();
-        }
-        for (Call call : client.dispatcher().runningCalls()) {
-            call.cancel();
-        }
+        client.dispatcher().cancelAll();
     }
 
     /**
