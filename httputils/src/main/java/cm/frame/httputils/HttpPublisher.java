@@ -57,10 +57,12 @@ public class HttpPublisher {
     public class JsonObjectCallback implements Callback {
         private HttpMethod method;
         private String eventTag;
+        private HttpCallback callback;
 
-        public JsonObjectCallback(String tag, HttpMethod method) {
+        public JsonObjectCallback(String tag, HttpMethod method, HttpCallback callback) {
             this.eventTag = tag;
             this.method = method;
+            this.callback = callback;
         }
 
         @Override
@@ -94,11 +96,27 @@ public class HttpPublisher {
         return Holder.INSTANCE;
     }
 
+    /**
+     * init HttpPuclisher
+     *
+     * @param context
+     * @param okHttpClient
+     */
     public void initialize(Context context, OkHttpClient okHttpClient) {
         mContext = context.getApplicationContext();
         client = okHttpClient;
     }
 
+    /**
+     * 设置统一回调
+     *
+     * @param defaultCallBack
+     */
+    public void setDefaultCallBack(HttpCallback defaultCallBack) {
+        if (defaultCallBack != null) {
+            this.defaultCallBack = defaultCallBack;
+        }
+    }
 
     /**
      * 设置请求token
@@ -137,7 +155,27 @@ public class HttpPublisher {
         return false;
     }
 
+    /**
+     * 发送请求，采用默认回调
+     *
+     * @param method 参数
+     * @param tag    标签
+     */
     public void sendRequest(final HttpMethod method, final String tag) {
+        sendRequest(method, tag, defaultCallBack);
+    }
+
+    /**
+     * 发送请求，自定议回调
+     *
+     * @param method   参数
+     * @param tag      标签
+     * @param callback 回调，为空时使用默认回调
+     */
+    public void sendRequest(final HttpMethod method, final String tag, HttpCallback callback) {
+        if (callback == null) {
+            callback = defaultCallBack;
+        }
         // 判断网络是否可用
         // 网络不可用时不进行网络连接
         if (!checkNetworkState()) {
@@ -145,7 +183,7 @@ public class HttpPublisher {
             data.put("errCode", NETWORK_ERROR);
             data.put("errName", "网络异常");
             method.put(data);
-            defaultCallBack.onFailure(method, tag, null);
+            callback.onFailure(method, tag, null);
             return;
         }
         FormBody.Builder formBuilder = new FormBody.Builder();
@@ -160,11 +198,11 @@ public class HttpPublisher {
                 .post(formBuilder.build())
                 .tag(tag)
                 .build();
-        client.newCall(request).enqueue(new JsonObjectCallback(tag, method));
+        client.newCall(request).enqueue(new JsonObjectCallback(tag, method, callback));
     }
 
     /**
-     * 带Token的发送请求
+     * 发送带Token的请求,使用默认回调
      *
      * @param method
      * @param tag
@@ -173,7 +211,20 @@ public class HttpPublisher {
         for (String key : mHttpToken.keySet()) {
             method.getParam().put(key, mHttpToken.get(key));
         }
-        sendRequest(method, tag);
+        sendRequest(method, tag, defaultCallBack);
+    }
+
+    /**
+     * 发送带Token的请求,使用默认回调
+     *
+     * @param method
+     * @param tag
+     */
+    public void sendRequestWithToken(HttpMethod method, String tag, HttpCallback callback) {
+        for (String key : mHttpToken.keySet()) {
+            method.getParam().put(key, mHttpToken.get(key));
+        }
+        sendRequest(method, tag, callback);
     }
 
     /**
