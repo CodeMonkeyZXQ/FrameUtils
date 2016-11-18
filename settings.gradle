@@ -1,1 +1,1 @@
-include ':app', ':httputils'
+include ':app', ':httputils', ':updateutils'

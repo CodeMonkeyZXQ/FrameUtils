@@ -13,12 +13,18 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
+import io.reactivex.Flowable;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.functions.Consumer;
+import io.reactivex.functions.Function;
+import io.reactivex.schedulers.Schedulers;
 import okhttp3.Call;
-import okhttp3.Callback;
 import okhttp3.FormBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+
+import static android.R.attr.tag;
 
 
 public class HttpPublisher {
@@ -38,52 +44,33 @@ public class HttpPublisher {
     private static final String DEFAULT_TOKEN_NAME = "accessToken";
     private static final String TAG = "HttpPubliser";
 
-    private HttpCallback defaultCallBack = new HttpCallback() {
+    private Consumer consumer = new Consumer<HttpMethod>() {
         @Override
-        public void onFailure(HttpMethod method, String tag, IOException e) {
-            String msg = tag;
-            if (method.getParam() != null && !method.getParam().isEmpty()) {
-                msg = msg + ":" + method.getParam().toString();
+        public void accept(HttpMethod method) {
+            if (method.getError() != null) {
+                method.getCallback().onFailure(method);
+            } else {
+                method.getCallback().onSuccess(method);
             }
-            Log.e(TAG, msg, e);
-        }
-
-        @Override
-        public void onSuccess(HttpMethod method, String tag) {
-            Log.d(TAG, tag + ":" + method.toJSONString());
         }
     };
 
-    public class JsonObjectCallback implements Callback {
-        private HttpMethod method;
-        private String eventTag;
-        private HttpCallback callback;
-
-        public JsonObjectCallback(String tag, HttpMethod method, HttpCallback callback) {
-            this.eventTag = tag;
-            this.method = method;
-            this.callback = callback;
-        }
-
+    private HttpCallback defaultCallBack = new HttpCallback() {
         @Override
-        public void onFailure(Call call, IOException e) {
-            JSONObject data = new JSONObject();
-            data.put("errCode", HTTP_ERROR);
-            if (call.isCanceled()) {
-                data.put("errName", "Http访问被取消");
-            } else {
-                data.put("errName", "Http访问异常");
+        public void onFailure(HttpMethod method) {
+            String msg = method.getTag();
+            if (method.getParam() != null && !method.getParam().isEmpty()) {
+                msg = msg + ":" + method.getParam().toString();
             }
-            method.put(data);
-            defaultCallBack.onFailure(method, eventTag, e);
+            Log.e(TAG, msg, method.getError());
         }
 
         @Override
-        public void onResponse(Call call, Response response) throws IOException {
-            JSONObject data = JSON.parseObject(response.body().string());
-            defaultCallBack.onSuccess(method.put(data), eventTag);
+        public void onSuccess(HttpMethod method) {
+            Log.d(TAG, method.getTag() + ":" + method.getParam().toString());
+            Log.d(TAG, method.getTag() + ":" + method.data().toString());
         }
-    }
+    };
 
     private static class Holder {
         private static final HttpPublisher INSTANCE = new HttpPublisher();
@@ -156,75 +143,78 @@ public class HttpPublisher {
     }
 
     /**
-     * 发送请求，采用默认回调
-     *
-     * @param method 参数
-     * @param tag    标签
-     */
-    public void sendRequest(final HttpMethod method, final String tag) {
-        sendRequest(method, tag, defaultCallBack);
-    }
-
-    /**
      * 发送请求，自定议回调
      *
      * @param method   参数
-     * @param tag      标签
-     * @param callback 回调，为空时使用默认回调
      */
-    public void sendRequest(final HttpMethod method, final String tag, HttpCallback callback) {
-        if (callback == null) {
-            callback = defaultCallBack;
-        }
-        // 判断网络是否可用
-        // 网络不可用时不进行网络连接
-        if (!checkNetworkState()) {
-            JSONObject data = new JSONObject();
-            data.put("errCode", NETWORK_ERROR);
-            data.put("errName", "网络异常");
-            method.put(data);
-            callback.onFailure(method, tag, null);
-            return;
-        }
-        FormBody.Builder formBuilder = new FormBody.Builder();
-        Map<String, Object> map = method.getParam();
-        if (map != null && !map.isEmpty()) {
-            for (String key : map.keySet()) {
-                formBuilder.add(key, method.getParam().get(key).toString());
+    public void sendRequest(HttpMethod method) {
+        HttpMethod newMethod = new HttpMethod(method.getUrl(), method.getParam(), method.getTag(),method.getCallback());
+        Flowable.just(newMethod).map(new Function<HttpMethod, HttpMethod>() {
+            @Override
+            public HttpMethod apply(HttpMethod httpMethod) throws Exception {
+                if (httpMethod.getCallback() == null) {
+                    httpMethod.setCallback(defaultCallBack);
+                }
+
+                // 判断网络是否可用
+                // 网络不可用时不进行网络连接
+                if (!checkNetworkState()) {
+                    JSONObject data = new JSONObject();
+                    data.put("errCode", NETWORK_ERROR);
+                    data.put("errName", "网络异常");
+                    httpMethod.put(data);
+                    httpMethod.setError(new Exception("NetWork Error!"));
+                    return httpMethod;
+                }
+                FormBody.Builder formBuilder = new FormBody.Builder();
+                Map<String, Object> map = httpMethod.getParam();
+                if (map != null && !map.isEmpty()) {
+                    for (String key : map.keySet()) {
+                        formBuilder.add(key, httpMethod.getParam().get(key).toString());
+                    }
+                }
+                final Request request = new Request.Builder()
+                        .url(httpMethod.getUrl())
+                        .post(formBuilder.build())
+                        .tag(tag)
+                        .build();
+                Response response = null;
+                JSONObject data = null;
+                try {
+                    response = client.newCall(request).execute();
+                    data = JSON.parseObject(response.body().string());
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    httpMethod.setError(e);
+                }
+                return httpMethod.put(data);
             }
-        }
-        Request request = new Request.Builder()
-                .url(method.getUrl())
-                .post(formBuilder.build())
-                .tag(tag)
-                .build();
-        client.newCall(request).enqueue(new JsonObjectCallback(tag, method, callback));
+        })
+                .subscribeOn(Schedulers.io()).observeOn(AndroidSchedulers.mainThread()).subscribe(consumer);
     }
 
     /**
      * 发送带Token的请求,使用默认回调
      *
      * @param method
-     * @param tag
      */
-    public void sendRequestWithToken(HttpMethod method, String tag) {
+    public void sendRequestWithToken(HttpMethod method) {
         for (String key : mHttpToken.keySet()) {
             method.getParam().put(key, mHttpToken.get(key));
         }
-        sendRequest(method, tag, defaultCallBack);
+        sendRequest(method);
     }
 
     /**
      * 发送带Token的请求,使用默认回调
      *
      * @param method
-     * @param tag
      */
-    public void sendRequestWithToken(HttpMethod method, String tag, HttpCallback callback) {
+    public void sendRequestWithToken(HttpMethod method, HttpCallback callback) {
         for (String key : mHttpToken.keySet()) {
             method.getParam().put(key, mHttpToken.get(key));
         }
-        sendRequest(method, tag, callback);
+        sendRequest(method);
     }
 
     /**

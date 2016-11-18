@@ -5,6 +5,7 @@
       <module fileurl="file://$PROJECT_DIR$/FrameUtils.iml" filepath="$PROJECT_DIR$/FrameUtils.iml" />
       <module fileurl="file://$PROJECT_DIR$/app/app.iml" filepath="$PROJECT_DIR$/app/app.iml" />
       <module fileurl="file://$PROJECT_DIR$/httputils/httputils.iml" filepath="$PROJECT_DIR$/httputils/httputils.iml" />
+      <module fileurl="file://$PROJECT_DIR$/updateutils/updateutils.iml" filepath="$PROJECT_DIR$/updateutils/updateutils.iml" />
     </modules>
   </component>
 </project>
